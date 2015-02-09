@@ -1,0 +1,56 @@
+* Silly trick for logging into ec2 instances.
+
+I use this to login to EC2 instances.  Bare EC2 hostnames are a royal
+PITA work with.  I do know that a lot of that pain can be mitigated
+with a well integrated provisioning/cataloguing system and/or a good
+DNS scheme etc.  I have yet to discover one that's universally good.
+
+For now, let's assume you just have your instance id.  You will need a
+proxy host to jump through, for this to work.  Since most places use a
+bastion server, this should be fine.  If you don't use a bastion
+server, you can use your local linux/mac box as your proxy server.
+You will need to have your aws command line tools installed and setup
+with you access/secret keys for this to work.
+
+My ssh config looks like this.
+#+BEGIN_EXAMPLE -n
+# All ec2 instances are named i-<hex code here>
+Host i-*
+  User aravind
+  ProxyCommand ~/linux/bin/ec2 %h %p
+
+# This is my ssh bastion (proxy) server
+Host gateway
+  User aravind
+  HostName 123.45.56.78
+#+END_EXAMPLE
+
+My ec2 script looks like this.
+
+#+BEGIN_SRC sh -n
+#! /bin/sh
+
+HOST=$1
+PORT=$2
+
+# look for the ip if you have logged in to the instance in the past
+IP=$(awk "/${HOST}/ {print \$2}" ~/.ssh/ec2_ips)
+
+if [ -z "$IP" ]; then
+    # Fetch the ip address and cache it
+    IP=$(aws ec2 describe-instances --instance-id ${HOST} --query='Reservations[0].Instances[0].PrivateIpAddress' | tr -d '"')
+    echo $HOST $IP >> ~/.ssh/ec2_ips
+fi
+
+exec ssh -q -W $IP:$PORT gateway
+#+END_SRC
+
+I am using the instance's private ip address here.  You can switch the
+above ec2 query to the public address if your instances are publicly
+available.  Also if you stop/start your instance, there is a very good
+chance that you will get a new ip address, this script does not
+account for that.  You will need to do some known_hosts wrangling and
+clear the corresponding line in the ~/.ssh/ec2_ips file in that case.
+
+With all of this setup, my ec2 ssh logins are now simply "ssh
+i-ab1cd2ef".  Hope you find this useful.
